@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#FBF7F0">
+<title>Aperçu privé</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Ivy Jewels">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  html, body { margin: 0; min-height: 100svh; background: #FBF7F0; color: #1C1A17; font-family: Jost, "Helvetica Neue", Arial, sans-serif; }
+  .acces { min-height: 100svh; display: grid; place-items: center; padding: 24px; text-align: center; }
+  .acces__boite { display: grid; gap: 20px; width: min(100%, 380px); justify-items: center; }
+  .acces__logo { font-family: "Cormorant Garamond", Georgia, serif; font-size: 64px; line-height: 1; color: #C9A24E; }
+  .acces__logo small { display: block; font-family: inherit; font-size: 12px; letter-spacing: .32em; text-transform: uppercase; color: #7A5C1E; margin-top: 6px; font-family: Jost, sans-serif; }
+  .acces p { margin: 0; font-size: 14px; color: #5A5650; line-height: 1.5; }
+  .acces input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 8px 16px; border: 1px solid #8A7F72; border-radius: 2px; background: #FBFAF7; font: inherit; font-size: 16px; text-align: center; letter-spacing: .06em; }
+  .acces button { width: 100%; min-height: 48px; border: 1px solid #1C1A17; border-radius: 2px; background: #1C1A17; color: #FBF7F0; font: inherit; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  .acces__erreur { color: #9B2F1F; }
+  .acces__etat { color: #1F4E7A; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="acces">
+  <form class="acces__boite" data-acces>
+    <p class="acces__logo">Ivy<small>Jewels</small></p>
+    <p>Aperçu privé de la boutique. Entrez le code d'accès reçu avec le lien.</p>
+    <label for="cle" style="position:absolute;left:-9999px">Code d'accès</label>
+    <input id="cle" name="cle" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="code d'accès">
+    <button type="submit">Ouvrir la boutique</button>
+    <p class="acces__erreur" data-erreur hidden>Code incorrect.</p>
+    <p class="acces__etat" data-etat hidden>Ouverture…</p>
+  </form>
+</main>
+<script>
+(async () => {
+  const form = document.querySelector("[data-acces]"), champ = document.getElementById("cle");
+  const erreur = document.querySelector("[data-erreur]"), etat = document.querySelector("[data-etat]");
+  const memo = { lis: () => { try { return sessionStorage.getItem("ivy.cle") || ""; } catch (e) { return ""; } }, ecrit: v => { try { sessionStorage.setItem("ivy.cle", v); } catch (e) {} } };
+  let donnees = null;
+  const charge = async () => { if (donnees) return donnees; const r = await fetch("site.bin", { cache: "force-cache" }); if (!r.ok) throw new Error("site.bin"); donnees = new Uint8Array(await r.arrayBuffer()); return donnees; };
+  const dechiffre = async phrase => {
+    const d = await charge();
+    if (new TextDecoder().decode(d.slice(0, 4)) !== "IVY1") throw new Error("format");
+    const sel = d.slice(4, 20), iv = d.slice(20, 32), corps = d.slice(32);
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(phrase), "PBKDF2", false, ["deriveKey"]);
+    const cle = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: sel, iterations: 250000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const clair = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cle, corps);
+    return new TextDecoder().decode(clair);
+  };
+  const ouvre = async phrase => {
+    phrase = (phrase || "").trim().toLowerCase();
+    if (!phrase) return;
+    erreur.hidden = true; etat.hidden = false;
+    try {
+      const html = await dechiffre(phrase);
+      memo.ecrit(phrase);
+      /* La clé disparaît de l'adresse ; la boutique démarre sur son accueil. */
+      const route = (location.hash.match(/#(\/[^&]*)/) || [])[1] || "/";
+      history.replaceState(null, "", location.pathname + "#" + route);
+      document.open(); document.write(html); document.close();
+    } catch (e) { etat.hidden = true; erreur.hidden = false; champ.focus(); champ.select(); }
+  };
+  form.addEventListener("submit", e => { e.preventDefault(); ouvre(champ.value); });
+  const m = location.hash.match(/cle=([^&]+)/);
+  if (m) ouvre(decodeURIComponent(m[1])); else if (memo.lis()) ouvre(memo.lis()); else champ.focus();
+  charge().catch(() => {});
+})();
+</script>
+</body>
+</html>
