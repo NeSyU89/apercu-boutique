@@ -64,10 +64,21 @@
   const charge = async () => { if (donnees) return donnees; const r = await fetch("site.bin", { cache: "force-cache" }); if (!r.ok) throw new Error("site.bin"); donnees = new Uint8Array(await r.arrayBuffer()); return donnees; };
   const dechiffre = async jeton => {
     const d = await charge();
-    if (new TextDecoder().decode(d.slice(0, 4)) !== "IVY2") throw new Error("format");
-    const sel = d.slice(4, 20), iv = d.slice(20, 32), corps = d.slice(32);
-    const ikm = await crypto.subtle.importKey("raw", new TextEncoder().encode(jeton), "HKDF", false, ["deriveKey"]);
-    const cle = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: sel, info: new TextEncoder().encode("ivy-apercu") }, ikm, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const magie = new TextDecoder().decode(d.slice(0, 4));
+    if (magie !== "IVY2" && magie !== "IVY3") throw new Error("format");
+    /* IVY3 étire un code court par PBKDF2 : le nombre de tours est écrit juste après la signature. */
+    const tours = magie === "IVY3" ? new DataView(d.buffer, d.byteOffset + 4, 4).getUint32(0) : 0;
+    const base = magie === "IVY3" ? 8 : 4;
+    const sel = d.slice(base, base + 16), iv = d.slice(base + 16, base + 28), corps = d.slice(base + 28);
+    const brut = new TextEncoder().encode(jeton);
+    let cle;
+    if (tours) {
+      const ikm = await crypto.subtle.importKey("raw", brut, "PBKDF2", false, ["deriveKey"]);
+      cle = await crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: sel, iterations: tours }, ikm, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    } else {
+      const ikm = await crypto.subtle.importKey("raw", brut, "HKDF", false, ["deriveKey"]);
+      cle = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: sel, info: new TextEncoder().encode("ivy-apercu") }, ikm, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    }
     const clair = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cle, corps);
     return new TextDecoder().decode(clair);
   };
