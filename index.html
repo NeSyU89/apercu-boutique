@@ -61,7 +61,17 @@
   const erreur = document.querySelector("[data-erreur]"), etat = document.querySelector("[data-etat]");
   const memo = { lis: () => { try { return sessionStorage.getItem("ivy.cle") || ""; } catch (e) { return ""; } }, ecrit: v => { try { sessionStorage.setItem("ivy.cle", v); } catch (e) {} } };
   let donnees = null;
-  const charge = async () => { if (donnees) return donnees; const r = await fetch("site.bin", { cache: "force-cache" }); if (!r.ok) throw new Error("site.bin"); donnees = new Uint8Array(await r.arrayBuffer()); return donnees; };
+  /* L'adresse porte l'empreinte du contenu : une nouvelle publication a une nouvelle adresse, donc le cache du
+     navigateur ne peut plus resservir l'ancien site.bin (chiffré avec l'ancien code). « forcer » ignore en plus
+     tout cache, pour la deuxième chance en cas d'échec. */
+  const VERSION = "9bcbbbce9fb5";
+  const charge = async (forcer) => {
+    if (donnees && !forcer) return donnees;
+    const r = await fetch("site.bin?v=" + VERSION, { cache: forcer ? "reload" : "force-cache" });
+    if (!r.ok) throw new Error("site.bin");
+    donnees = new Uint8Array(await r.arrayBuffer());
+    return donnees;
+  };
   const dechiffre = async jeton => {
     const d = await charge();
     const magie = new TextDecoder().decode(d.slice(0, 4));
@@ -82,7 +92,7 @@
     const clair = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cle, corps);
     return new TextDecoder().decode(clair);
   };
-  const ouvre = async jeton => {
+  const ouvre = async (jeton, secondeChance) => {
     /* Le jeton est sensible à la casse (base64url) : on ne le normalise pas, on retire seulement les espaces. */
     jeton = (jeton || "").trim();
     if (!jeton) return;
@@ -94,7 +104,13 @@
       const route = (location.hash.match(/#(\/[^&]*)/) || [])[1] || "/";
       history.replaceState(null, "", location.pathname + "#" + route);
       document.open(); document.write(html); document.close();
-    } catch (e) { etat.hidden = true; erreur.hidden = false; champ.focus(); champ.select(); }
+    } catch (e) {
+      /* Deuxième chance : un binaire servi depuis un cache périmé donne exactement la même erreur qu'un
+         mauvais code. On le retélécharge en ignorant tout cache avant de conclure. */
+      if (!secondeChance) { donnees = null; try { await charge(true); } catch (_) {} return ouvre(jeton, true); }
+      memo.ecrit("");
+      etat.hidden = true; erreur.hidden = false; champ.focus(); champ.select();
+    }
   };
   form.addEventListener("submit", e => { e.preventDefault(); ouvre(champ.value); });
   const jetonDeLAdresse = () => { const m = location.hash.match(/cle=([^&]+)/); return m ? decodeURIComponent(m[1]) : ""; };
