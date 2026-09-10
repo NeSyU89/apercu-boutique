@@ -64,7 +64,7 @@
   /* L'adresse porte l'empreinte du contenu : une nouvelle publication a une nouvelle adresse, donc le cache du
      navigateur ne peut plus resservir l'ancien site.bin (chiffré avec l'ancien code). « forcer » ignore en plus
      tout cache, pour la deuxième chance en cas d'échec. */
-  const VERSION = "d8a203ff79e4";
+  const VERSION = "e4052be915a4";
   const charge = async (forcer) => {
     if (donnees && !forcer) return donnees;
     const r = await fetch("site.bin?v=" + VERSION, { cache: forcer ? "reload" : "force-cache" });
